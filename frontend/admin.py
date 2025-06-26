@@ -23,8 +23,9 @@ class CafeApp(tk.Tk):
             ('MEJA', ['ID_Meja', 'Nomor_Meja', 'Status_Meja', 'ID_Karyawan']),
             ('MENU', ['ID_Menu', 'Nama_Menu', 'Harga_Menu', 'Kategori']),
             ('PESANAN', ['ID_Pesanan', 'ID_Customer', 'ID_Karyawan', 'Waktu_Pesanan', 'ID_Menu', 'ID_Meja']),
-            ('PEMBAYARAN', ['ID_Pembayaran', 'ID_Transaksi', 'Metode_Pembayaran', 'Jumlah_Bayar', 'Tanggal_Pembayaran']),
-            ('RESERVASI', ['ID_Reservasi', 'ID_Customer', 'ID_Meja', 'Tanggal_Reservasi', 'Waktu_Mulai', 'Waktu_Selesai', 'Status_Reservasi']),
+            ('PEMBAYARAN', ['ID_Pembayaran', 'ID_Pesanan', 'ID_Transaksi', 'ID_Karyawan', 'Metode_Pembayaran', 'Jumlah_Bayar', 'Tanggal_Pembayaran']),
+            # BARIS DI BAWAH INI TELAH DIPERBAIKI
+            ('RESERVASI', ['ID_Reservasi', 'ID_Customer', 'ID_Meja', 'ID_Karyawan', 'Tanggal_Reservasi', 'Waktu_Mulai', 'Waktu_Selesai', 'Status_Reservasi']),
             ('TRANSAKSI', ['ID_Transaksi', 'ID_Pesanan', 'Total_Harga', 'Tanggal_Transaksi', 'ID_Karyawan']),
         ]
 
@@ -40,6 +41,7 @@ class TableTab:
         self.fields = fields
         self.entries = {}
         self.comboboxes = {}
+        self.selected_pk = None
         self.setup_ui()
         self.load_data()
 
@@ -56,21 +58,17 @@ class TableTab:
                 cb.current(0)
                 cb.grid(row=1, column=idx, padx=5, pady=2)
                 self.comboboxes[field] = cb
-
             elif "tanggal" in field.lower() or "waktu" in field.lower():
                 entry = DateEntry(input_frame, date_pattern="dd-mm-yyyy", width=12)
                 entry.grid(row=1, column=idx, padx=5, pady=2)
                 self.entries[field] = entry
-
             elif self.is_fk_field(field):
                 cb = ttk.Combobox(input_frame, width=15)
                 cb.grid(row=1, column=idx, padx=5, pady=2)
                 self.comboboxes[field] = cb
-
             elif idx == 0:
                 tk.Label(input_frame, text="(Auto)").grid(row=1, column=idx, padx=5, pady=2)
                 self.entries[field] = None
-
             else:
                 entry = tk.Entry(input_frame, width=15)
                 entry.grid(row=1, column=idx, padx=5, pady=2)
@@ -91,29 +89,19 @@ class TableTab:
         self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
 
     def is_fk_field(self, field):
-        fk_patterns = [
-            "_ID_Karyawan", "_ID_Customer", "_ID_Meja", "_ID_Menu",
-            "_ID_Pesanan", "_ID_Transaksi", "_ID_Pembayaran"
-        ]
-        return any(pattern in field for pattern in fk_patterns) or (
-            field.startswith("ID_") and field != self.fields[0]
-        )
+        fk_patterns = ["_ID_Karyawan", "_ID_Customer", "_ID_Meja", "_ID_Menu", "_ID_Pesanan", "_ID_Transaksi", "_ID_Pembayaran"]
+        return any(pattern in field for pattern in fk_patterns) or (field.startswith("ID_") and field != self.fields[0])
 
     def get_fk_values(self, field):
         fk_map = {
-            "ID_Karyawan": ("KARYAWAN", "ID_Karyawan"),
-            "ID_Customer": ("CUSTOMER", "ID_Customer"),
-            "ID_Meja": ("MEJA", "ID_Meja"),
-            "ID_Menu": ("MENU", "ID_Menu"),
-            "ID_Pesanan": ("PESANAN", "ID_Pesanan"),
-            "ID_Transaksi": ("TRANSAKSI", "ID_Transaksi"),
+            "ID_Karyawan": ("KARYAWAN", "ID_Karyawan"), "ID_Customer": ("CUSTOMER", "ID_Customer"),
+            "ID_Meja": ("MEJA", "ID_Meja"), "ID_Menu": ("MENU", "ID_Menu"),
+            "ID_Pesanan": ("PESANAN", "ID_Pesanan"), "ID_Transaksi": ("TRANSAKSI", "ID_Transaksi"),
         }
-
         if field in fk_map:
             table, col = fk_map[field]
             conn = get_connection()
-            if not conn:
-                return []
+            if not conn: return []
             try:
                 cur = conn.cursor()
                 cur.execute(f"SELECT {col} FROM {table}")
@@ -128,109 +116,132 @@ class TableTab:
         return []
 
     def load_data(self):
+        self.selected_pk = None
+        for i in self.tree.get_children():
+            self.tree.delete(i)
+        
         for field, cb in self.comboboxes.items():
             if self.table_name == "MENU" and field == "Kategori":
                 cb["values"] = ["Makanan", "Minuman"]
-                if not cb.get():
-                    cb.set("Makanan")
+                if not cb.get(): cb.set("Makanan")
             else:
                 cb["values"] = self.get_fk_values(field)
-                if cb["values"]:
-                    cb.set(cb["values"][0])
-
-        for i in self.tree.get_children():
-            self.tree.delete(i)
+                if cb["values"]: cb.set(cb["values"][0])
+        
         conn = get_connection()
         if conn:
             try:
                 cur = conn.cursor()
-                cur.execute(f"SELECT * FROM {self.table_name}")
+                cur.execute(f"SELECT * FROM {self.table_name} ORDER BY {self.fields[0]}")
                 for row in cur.fetchall():
-                    self.tree.insert("", "end", values=row)
+                    # Format tanggal dari database sebelum ditampilkan di Treeview
+                    formatted_row = []
+                    for i, value in enumerate(row):
+                        field_name = self.fields[i]
+                        if isinstance(value, datetime.datetime) and ("tanggal" in field_name.lower() or "waktu" in field_name.lower()):
+                             formatted_row.append(value.strftime('%d-%m-%Y'))
+                        else:
+                             formatted_row.append(value)
+                    self.tree.insert("", "end", values=tuple(formatted_row))
                 cur.close()
             except Exception as e:
                 messagebox.showerror("Error", f"Gagal memuat data dari {self.table_name}: {e}")
             finally:
                 conn.close()
 
-    def get_form_values(self):
+    def get_form_values(self, for_insert=False):
         data = []
-        for field in self.fields:
-            if "tanggal" in field.lower() or "waktu" in field.lower():
-                data.append(self.entries[field].get())
-            elif field in self.comboboxes:
-                data.append(self.comboboxes[field].get())
-            elif self.entries[field] is not None:
-                data.append(self.entries[field].get())
-            else:
-                data.append("")
+        fields_to_process = self.fields if for_insert else self.fields[1:]
+        
+        for field in fields_to_process:
+            value = ""
+            if field in self.comboboxes:
+                value = self.comboboxes.get(field).get()
+            elif field in self.entries and self.entries.get(field) is not None:
+                value = self.entries.get(field).get()
+            data.append(value)
         return data
 
-    def add_data(self):
-        data = self.get_form_values()
-        for i, field in enumerate(self.fields):
-            if ("tanggal" in field.lower() or "waktu" in field.lower()) and data[i]:
+    def process_date_values(self, values, fields_list):
+        processed_values = list(values)
+        for i, field in enumerate(fields_list):
+            if ("tanggal" in field.lower() or "waktu" in field.lower()) and processed_values[i]:
                 try:
-                    data[i] = datetime.datetime.strptime(data[i], "%d-%m-%Y")
-                except ValueError:
-                    messagebox.showerror("Format Tanggal/Waktu Salah",
-                                        f"Kolom {field} harus dalam format dd-mm-yyyy (misal 23-10-2024).")
-                    return
-        id_field = self.fields[0]
-        prefix = get_prefix_for_table(self.table_name)
-        data[0] = generate_custom_id(self.table_name, id_field, prefix)
+                    # Konversi string 'dd-mm-yyyy' ke objek datetime
+                    processed_values[i] = datetime.datetime.strptime(processed_values[i], "%d-%m-%Y")
+                except (ValueError, TypeError):
+                    messagebox.showerror("Format Tanggal Salah", f"Format tanggal untuk kolom {field} harus dd-mm-yyyy.")
+                    return None
+        return processed_values
 
-        if any(value == "" for value in data[1:]):
-            messagebox.showwarning("Peringatan", "Semua kolom (kecuali ID) harus diisi.")
+    def add_data(self):
+        prefix = get_prefix_for_table(self.table_name)
+        new_id = generate_custom_id(self.table_name, self.fields[0], prefix)
+        if not new_id:
+            messagebox.showerror("Error", "Gagal menghasilkan ID baru.")
             return
 
-        placeholders = ",".join(f":{i+1}" for i in range(len(data)))
+        values = self.get_form_values(for_insert=True)[1:] # Ambil nilai form kecuali ID
+        
+        if any(v == "" for v in values):
+            messagebox.showwarning("Peringatan", "Semua kolom harus diisi.")
+            return
+
+        # Proses konversi tanggal
+        processed_values = self.process_date_values(values, self.fields[1:])
+        if processed_values is None:
+            return
+
+        data_to_insert = [new_id] + processed_values
+        placeholders = ",".join(f":{i+1}" for i in range(len(data_to_insert)))
+        
         conn = get_connection()
         if conn:
             try:
                 cur = conn.cursor()
-                cur.execute(f"INSERT INTO {self.table_name} VALUES ({placeholders})", data)
+                cur.execute(f"INSERT INTO {self.table_name} ({', '.join(self.fields)}) VALUES ({placeholders})", data_to_insert)
                 conn.commit()
-                cur.close()
-                messagebox.showinfo("Sukses", f"Data berhasil ditambahkan!\nID: {data[0]}")
+                messagebox.showinfo("Sukses", f"Data berhasil ditambahkan dengan ID: {new_id}")
                 self.load_data()
                 for entry in self.entries.values():
-                    if entry:
-                        entry.delete(0, tk.END)
+                    if entry: entry.delete(0, tk.END)
                 for cb in self.comboboxes.values():
-                    if cb["values"]:
-                        cb.set(cb["values"][0])
+                    if cb['values']: cb.current(0)
             except Exception as e:
-                messagebox.showerror("Error", f"Gagal tambah data: {e}")
+                messagebox.showerror("Error", f"Gagal menambahkan data: {e}")
             finally:
                 conn.close()
 
     def on_tree_select(self, event):
         selected = self.tree.selection()
-        if not selected:
-            return
+        if not selected: return
+        
         values = self.tree.item(selected[0])["values"]
+        self.selected_pk = values[0]
+        
         for idx, field in enumerate(self.fields):
+            if idx == 0: continue
             if field in self.comboboxes:
                 self.comboboxes[field].set(values[idx])
-            elif self.entries[field] is not None:
+            elif self.entries.get(field) is not None:
                 self.entries[field].delete(0, tk.END)
                 self.entries[field].insert(0, values[idx])
 
     def edit_data(self):
-        data = self.get_form_values()
-        update_values = data[1:] + [data[0]]
-        set_clause = ", ".join(f"{f} = :{i+1}" for i, f in enumerate(self.fields[1:]))
-
-        pk_value = None
-        if self.entries.get(self.fields[0]):
-            pk_value = self.entries[self.fields[0]].get()
-        elif self.comboboxes.get(self.fields[0]):
-            pk_value = self.comboboxes[self.fields[0]].get()
-
+        pk_value = self.selected_pk
         if not pk_value:
-            messagebox.showwarning("Peringatan", "Pilih data yang ingin diedit.")
+            messagebox.showwarning("Peringatan", "Pilih data yang ingin diedit dari tabel.")
             return
+
+        values = self.get_form_values(for_insert=False)
+        
+        # Proses konversi tanggal
+        processed_values = self.process_date_values(values, self.fields[1:])
+        if processed_values is None:
+            return
+
+        set_clause = ", ".join(f"{f} = :{i+1}" for i, f in enumerate(self.fields[1:]))
+        update_values = processed_values + [pk_value]
 
         conn = get_connection()
         if conn:
@@ -238,26 +249,20 @@ class TableTab:
                 cur = conn.cursor()
                 cur.execute(f"UPDATE {self.table_name} SET {set_clause} WHERE {self.fields[0]} = :{len(self.fields)}", tuple(update_values))
                 conn.commit()
-                cur.close()
-                self.load_data()
                 messagebox.showinfo("Sukses", "Data berhasil diupdate.")
+                self.load_data()
             except Exception as e:
                 messagebox.showerror("Error", f"Gagal update data: {e}")
             finally:
                 conn.close()
 
     def delete_data(self):
-        pk_value = None
-        if self.entries.get(self.fields[0]):
-            pk_value = self.entries[self.fields[0]].get()
-        elif self.comboboxes.get(self.fields[0]):
-            pk_value = self.comboboxes[self.fields[0]].get()
-
+        pk_value = self.selected_pk
         if not pk_value:
-            messagebox.showwarning("Peringatan", "Pilih data yang akan dihapus.")
+            messagebox.showwarning("Peringatan", "Pilih data yang akan dihapus dari tabel.")
             return
 
-        if not messagebox.askyesno("Konfirmasi", f"Yakin hapus data ID {pk_value}?"):
+        if not messagebox.askyesno("Konfirmasi", f"Yakin ingin menghapus data dengan ID {pk_value}?"):
             return
 
         conn = get_connection()
@@ -266,10 +271,9 @@ class TableTab:
                 cur = conn.cursor()
                 cur.execute(f"DELETE FROM {self.table_name} WHERE {self.fields[0]} = :1", [pk_value])
                 conn.commit()
-                cur.close()
-                self.load_data()
                 messagebox.showinfo("Sukses", "Data berhasil dihapus.")
+                self.load_data()
             except Exception as e:
-                messagebox.showerror("Error", f"Gagal hapus data: {e}")
+                messagebox.showerror("Error", f"Gagal menghapus data: {e}")
             finally:
                 conn.close()
