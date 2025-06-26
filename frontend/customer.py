@@ -52,7 +52,8 @@ class CustomerApp(tk.Tk):
             try:
                 conn = get_connection()
                 cur = conn.cursor()
-                cur.execute("SELECT ID_Meja FROM MEJA WHERE Status_Meja = 'KOSONG'")
+                # Kueri SQL telah diperbaiki di sini untuk tidak case-sensitive
+                cur.execute("SELECT ID_Meja FROM MEJA WHERE UPPER(Status_Meja) = 'AVAILABLE'")
                 meja_list = [row[0] for row in cur.fetchall()]
                 cur.close()
                 conn.close()
@@ -124,10 +125,11 @@ class CustomerApp(tk.Tk):
         try:
             conn = get_connection()
             cur = conn.cursor()
+            # Kueri SQL telah diperbaiki di sini
             cur.execute("""
                 SELECT ID_Pesanan, ID_Customer, Waktu_Pesanan
                 FROM PESANAN
-                WHERE ID_Customer = :1 OR Customer_ID_Customer = :1
+                WHERE ID_Customer = :1
             """, [self.customer_id])
             for row in cur.fetchall():
                 tree.insert('', 'end', values=row)
